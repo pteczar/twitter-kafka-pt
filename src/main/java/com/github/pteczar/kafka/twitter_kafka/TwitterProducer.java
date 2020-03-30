@@ -10,6 +10,9 @@ import com.twitter.hbc.core.endpoint.StatusesFilterEndpoint;
 import com.twitter.hbc.core.processor.StringDelimitedProcessor;
 import com.twitter.hbc.httpclient.auth.Authentication;
 import com.twitter.hbc.httpclient.auth.OAuth1;
+import org.apache.kafka.clients.producer.*;
+import org.apache.kafka.common.protocol.types.Field;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +20,7 @@ import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-
+import java.util.Properties;
 
 
 public class TwitterProducer {
@@ -49,6 +52,17 @@ public class TwitterProducer {
         client.connect();
 
         //creating a kafka producer
+        KafkaProducer<String, String> producer = createKafkaProducer();
+
+        //shutdown hook
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+          logger.info("stopping application...");
+          logger.info("shutting down twitter client...");
+          client.stop();
+          logger.info("shutting down producer");
+          producer.close();
+          logger.info("finito!");
+        }));
 
         //loop to send tweets to kafka
         // on a different thread, or multiple different threads....
@@ -62,6 +76,14 @@ public class TwitterProducer {
             }
             if(msg != null) {
                 logger.info(msg);
+                producer.send(new ProducerRecord<>("twitter_tweets",null, msg),new Callback() {
+                    @Override
+                    public void onCompletion(RecordMetadata recordMetadata, Exception e) {
+                        if (e != null) {
+                            logger.error("Something bad happened", e);
+                        }
+                    }
+                });
             }
 
         }
@@ -99,6 +121,20 @@ public class TwitterProducer {
 
     }
 
+        public KafkaProducer<String, String> createKafkaProducer() {
 
+        Properties properties = new Properties();
+        String bootstrapServers = "127.0.0.1:9092";
+
+        properties.setProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        properties.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        properties.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+
+
+    //create the producer
+
+        KafkaProducer <String, String> producer = new KafkaProducer<String, String>(properties);
+        return producer;
+        }
 
 }
